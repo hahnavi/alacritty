@@ -21,7 +21,12 @@ use crate::{thread, tty};
 use vte::ansi;
 
 /// Max bytes to read from the PTY before forced terminal synchronization.
-pub(crate) const READ_BUFFER_SIZE: usize = 0x10_0000;
+///
+/// Matches MAX_LOCKED_READ, since at most that many bytes are processed per
+/// terminal lock anyway; the buffer lives on the reader thread's stack, so a
+/// larger buffer permanently costs its size in resident pages once output has
+/// filled it.
+pub(crate) const READ_BUFFER_SIZE: usize = 0x1_0000;
 
 /// Max bytes to read from the PTY while the terminal is locked.
 const MAX_LOCKED_READ: usize = u16::MAX as usize;
