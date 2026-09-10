@@ -1,4 +1,3 @@
-use std::cmp::max;
 use std::mem;
 use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut};
@@ -130,7 +129,14 @@ impl<T> Storage<T> {
         if self.len + additional_rows > self.inner.len() {
             self.rezero();
 
-            let realloc_size = self.inner.len() + max(additional_rows, MAX_CACHE_SIZE);
+            // Reserve extra rows so that growing scrollback does not
+            // reallocate on every line, but scale the reservation with the
+            // buffer instead of using MAX_CACHE_SIZE steps. Every reserved
+            // row is a full cells allocation, so fixed 1,000-row steps cost
+            // ~2 MiB per terminal as soon as the first line enters
+            // scrollback.
+            let reserve = additional_rows.max((self.inner.len() / 2).min(MAX_CACHE_SIZE));
+            let realloc_size = self.inner.len() + reserve;
             self.inner.resize_with(realloc_size, || Row::new(columns));
         }
 
@@ -345,7 +351,7 @@ mod tests {
     ///   2: -
     ///   3: \0
     ///   ...
-    ///   MAX_CACHE_SIZE: \0
+    ///   reserve: \0
     #[test]
     fn grow_after_zero() {
         // Setup storage area.
@@ -366,7 +372,8 @@ mod tests {
             visible_lines: 4,
             len: 4,
         };
-        expected.inner.append(&mut vec![filled_row('\0'); MAX_CACHE_SIZE]);
+        let reserve = 1usize.max((3usize / 2).min(MAX_CACHE_SIZE));
+        expected.inner.append(&mut vec![filled_row('\0'); reserve]);
 
         assert_eq!(storage.visible_lines, expected.visible_lines);
         assert_eq!(storage.inner, expected.inner);
@@ -386,7 +393,7 @@ mod tests {
     ///   2: -
     ///   3: \0
     ///   ...
-    ///   MAX_CACHE_SIZE: \0
+    ///   reserve: \0
     #[test]
     fn grow_before_zero() {
         // Setup storage area.
@@ -407,7 +414,8 @@ mod tests {
             visible_lines: 4,
             len: 4,
         };
-        expected.inner.append(&mut vec![filled_row('\0'); MAX_CACHE_SIZE]);
+        let reserve = 1usize.max((3usize / 2).min(MAX_CACHE_SIZE));
+        expected.inner.append(&mut vec![filled_row('\0'); reserve]);
 
         assert_eq!(storage.visible_lines, expected.visible_lines);
         assert_eq!(storage.inner, expected.inner);
@@ -738,8 +746,8 @@ mod tests {
             filled_row('4'),
             filled_row('5'),
         ];
-        let expected_init_size = std::cmp::max(init_size, MAX_CACHE_SIZE);
-        expected_inner.append(&mut vec![filled_row('\0'); expected_init_size]);
+        let expected_reserve = 3usize.max((6usize / 2).min(MAX_CACHE_SIZE));
+        expected_inner.append(&mut vec![filled_row('\0'); expected_reserve]);
         let expected_storage = Storage { inner: expected_inner, zero: 0, visible_lines: 0, len: 9 };
 
         assert_eq!(storage.len, expected_storage.len);
